@@ -1,19 +1,11 @@
 import psycopg2
-import psycopg2.extras
-import os
-from dotenv import load_dotenv
-
-# Carrega variáveis do .env
-load_dotenv()
+import streamlit as st
 
 def get_conn():
-    """
-    Cria e retorna uma conexão com o banco PostgreSQL do Supabase.
-    """
     return psycopg2.connect(
-        host=os.getenv("SUPABASE_HOST"),
-        port="5432",
-        database=os.getenv("SUPABASE_DB"),
-        user=os.getenv("SUPABASE_USER"),
-        password=os.getenv("SUPABASE_PASS")
+        host=st.secrets["SUPABASE_HOST"],
+        database=st.secrets["SUPABASE_DB"],
+        user=st.secrets["SUPABASE_USER"],
+        password=st.secrets["SUPABASE_PASS"],
+        port=5432
     )
