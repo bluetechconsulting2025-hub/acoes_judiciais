@@ -18,8 +18,8 @@ cur = conn.cursor()
 # FUNÇÃO: ENVIAR EMAIL
 # -----------------------------
 def enviar_email(destinatarios, assunto, mensagem):
-    remetente = os.getenv("SMTP_USER")
-    senha = os.getenv("SMTP_PASS")
+    remetente = st.secrets["SMTP_USER"]
+    senha = st.secrets["SMTP_PASS"]
 
     if isinstance(destinatarios, str):
         destinatarios = [d.strip() for d in destinatarios.split(",") if d.strip()]
