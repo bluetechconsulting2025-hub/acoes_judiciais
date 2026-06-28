@@ -1,23 +1,118 @@
 import streamlit as st
-from db import get_conn
-from datetime import date
-from utils_pdf import gerar_recibo_pdf
 import requests
 import base64
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime, timedelta
+from db import get_conn
+import os
 
 st.set_page_config(
     page_title="Judicial Blue",
     page_icon="simpl_blue.png",
     layout="wide"
 )
-st.title("📝 Dispensação Judicial")
+
+st.title("⚖️ Cadastro de Ações Judiciais")
 
 conn = get_conn()
 cur = conn.cursor()
 
 
 # -----------------------------
-# TOKEN WMS
+# FUNÇÃO: ENVIAR EMAIL
+# -----------------------------
+def enviar_email(destinatarios, assunto, mensagem):
+    remetente = st.secrets["SMTP_USER"]
+    senha = st.secrets["SMTP_PASS"]
+
+    if isinstance(destinatarios, str):
+        destinatarios = [d.strip() for d in destinatarios.split(",") if d.strip()]
+
+    msg = MIMEText(mensagem, "plain", "utf-8")
+    msg["Subject"] = assunto
+    msg["From"] = remetente
+    msg["To"] = ", ".join(destinatarios)
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(remetente, senha)
+            smtp.sendmail(remetente, destinatarios, msg.as_string())
+        return True
+    except Exception as e:
+        st.error(f"Erro ao enviar e-mail: {e}")
+        return False
+
+
+# -----------------------------
+# FUNÇÃO: VERIFICAR ALERTAS
+# -----------------------------
+def verificar_alertas_pendencias():
+    hoje = datetime.now().date()
+    alerta_3_dias = hoje + timedelta(days=3)
+
+    hoje_str = hoje.strftime("%Y-%m-%d")
+    alerta_3_dias_str = alerta_3_dias.strftime("%Y-%m-%d")
+
+    # ALERTA DE 3 DIAS
+    cur.execute("""
+        SELECT a.id, a.numero_processo, a.prazo, p.nome, p.cpf, p.email
+        FROM acoes a
+        JOIN pacientes p ON p.id = a.paciente_id
+        WHERE a.prazo = %s AND a.status != 'ENCERRADA'
+    """, (alerta_3_dias_str,))
+    proximos = cur.fetchall()
+
+    for acao_id, processo, prazo, nome, cpf, email in proximos:
+        cur.execute("SELECT 1 FROM alertas_enviados WHERE acao_id=%s AND tipo_alerta='3dias'", (acao_id,))
+        ja_enviado = cur.fetchone()
+
+        if ja_enviado or not email:
+            continue
+
+        ok = enviar_email(
+            email,
+            f"⚠️ Alerta: Processo {processo} vence em 3 dias",
+            f"O processo {processo} do paciente {nome} (CPF {cpf}) vence em 3 dias.\nData limite: {prazo}"
+        )
+        if ok:
+            cur.execute("""
+                INSERT INTO alertas_enviados (acao_id, tipo_alerta, data_envio)
+                VALUES (%s, '3dias', %s)
+            """, (acao_id, hoje_str))
+            conn.commit()
+
+    # ALERTA DE ATRASO
+    cur.execute("""
+        SELECT a.id, a.numero_processo, a.prazo, p.nome, p.cpf, p.email
+        FROM acoes a
+        JOIN pacientes p ON p.id = a.paciente_id
+        WHERE a.prazo < %s AND a.status != 'ENCERRADA'
+    """, (hoje_str,))
+    atrasados = cur.fetchall()
+
+    for acao_id, processo, prazo, nome, cpf, email in atrasados:
+        cur.execute("SELECT 1 FROM alertas_enviados WHERE acao_id=%s AND tipo_alerta='atraso'", (acao_id,))
+        ja_enviado = cur.fetchone()
+
+        if ja_enviado or not email:
+            continue
+
+        ok = enviar_email(
+            email,
+            f"⛔ Atraso: Processo {processo} está vencido",
+            f"O processo {processo} do paciente {nome} (CPF {cpf}) está atrasado.\nData limite era: {prazo}"
+        )
+        if ok:
+            cur.execute("""
+                INSERT INTO alertas_enviados (acao_id, tipo_alerta, data_envio)
+                VALUES (%s, 'atraso', %s)
+            """, (acao_id, hoje_str))
+            conn.commit()
+
+
+# -----------------------------
+# FUNÇÃO: GERAR TOKEN WMS
 # -----------------------------
 def gerar_token_wms():
     token_url = "https://mingle-sso.inforcloudsuite.com:443/BLUELOGISTICA_PRD/as/token.oauth2"
@@ -39,33 +134,124 @@ def gerar_token_wms():
         return None, f"Falha ao conectar ao servidor de token: {str(e)}"
 
 
+# -----------------------------
+# CPF: LIMPAR (só números)
+# -----------------------------
 def limpar_cpf(cpf):
     return "".join(filter(str.isdigit, cpf))
 
 
 # -----------------------------
-# SHIPMENTS (primeiro)
+# FUNÇÃO: CRIAR STORER NO WMS
 # -----------------------------
-def criar_shipment_wms(cpf_limpo, processo, sku, quantidade, lote):
+def criar_storer_wms(storerkey, nome_paciente):
     token, erro = gerar_token_wms()
-    if erro or not token:
-        st.error(erro or "Token não recebido para shipment.")
+    if erro:
+        st.error(erro)
+        return False
+    if not token:
+        st.error("Token não recebido do servidor WMS.")
         return False
 
-    url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2/shipments"
+    url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_ENTERPRISE/owners"
 
     payload = {
-        "orderkey": processo,
+        "storerkey": storerkey,
+        "company": nome_paciente,
+        "type": "1",
+        "country": "BR"
+    }
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        if resp.status_code in (200, 201):
+            return True
+        else:
+            st.error(f"Erro ao criar paciente no WMS: {resp.status_code}")
+            st.error(resp.text)
+            return False
+    except Exception as e:
+        st.error(f"Falha ao conectar ao WMS: {str(e)}")
+        return False
+
+
+# -----------------------------
+# FUNÇÃO: CRIAR SKU NO WMS
+# -----------------------------
+def criar_sku_wms(sku, descricao, storerkey):
+    token, erro = gerar_token_wms()
+    if erro:
+        st.error(erro)
+        return False
+    if not token:
+        st.error("Token não recebido do servidor WMS.")
+        return False
+
+    url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_ENTERPRISE/items"
+
+    payload = {
+        "sku": sku,
+        "storerkey": storerkey,
+        "descr": descricao,
+        "lottablevalidationkey": "INCA"
+        
+    }
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        if resp.status_code in (200, 201):
+            return True
+        else:
+            st.error(f"Erro ao criar SKU no WMS: {resp.status_code}")
+            st.error(resp.text)
+            return False
+    except Exception as e:
+        st.error(f"Falha ao conectar ao WMS: {str(e)}")
+        return False
+
+
+# -----------------------------
+# FUNÇÃO: ENVIAR AÇÃO PARA WMS
+# -----------------------------
+def enviar_para_wms(processo, sku, quantidade, cpf_limpo, nome_paciente, descricao_produto):
+
+    # 1. Criar storer
+    if not criar_storer_wms(cpf_limpo, nome_paciente):
+        st.error("Não foi possível criar o storer no WMS.")
+        return
+
+    # 2. Criar SKU
+    if not criar_sku_wms(sku, descricao_produto, cpf_limpo):
+        st.error("Não foi possível criar o SKU no WMS.")
+        return
+
+    # 3. Gerar token
+    token, erro = gerar_token_wms()
+    if erro:
+        st.error(erro)
+        return
+    if not token:
+        st.error("Token não recebido do servidor WMS.")
+        return
+
+    # 4. Enviar receipt
+    url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2/receipts"
+
+    payload = {
+        "receiptkey": processo,
         "storerkey": cpf_limpo,
         "type": "50",
-        "orderdetails": [
-            {
-            "orderkey": processo,
+        "receiptdetails": [{
+            "receiptkey": processo,
             "sku": sku,
             "storerkey": cpf_limpo,
-            "openqty": quantidade
-        }
-        ]
+            "qtyexpected": quantidade,
+            "lottable02": processo
+        }]
     }
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -73,208 +259,84 @@ def criar_shipment_wms(cpf_limpo, processo, sku, quantidade, lote):
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
         if resp.status_code in (200, 201):
-            return True
+            st.success("Entrada registrada no WMS com sucesso!")
         else:
-            st.error(f"Erro ao criar shipment no WMS: {resp.status_code}")
+            st.error(f"Erro ao enviar para recebimento WMS: {resp.status_code}")
             st.error(resp.text)
-            return False
     except Exception as e:
-        st.error(f"Falha ao conectar ao WMS (shipments): {str(e)}")
-        return False
+        st.error(f"Falha ao conectar ao WMS: {str(e)}")
 
 
 # -----------------------------
-# APPOINTMENTS (depois do shipment)
+# FORMULÁRIO DE CADASTRO
 # -----------------------------
-def criar_appointment_wms(cpf_limpo, processo, data_saida, numero_pedido):
-    token, erro = gerar_token_wms()
-    if erro or not token:
-        st.error(erro or "Token não recebido para appointment.")
-        return False
+st.subheader("Nova Ação Judicial")
 
-    url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2/appointments"
+col1, col2 = st.columns(2)
 
-    payload = {
-        "appointmentkey": processo,
-        "appointmenttype": 1,
-        "owner": cpf_limpo,
-        "gmtstartdateandtime": f"{data_saida.strftime('%Y-%m-%d')}T00:00:00-03:00",
-        "gmtenddateandtime": f"{data_saida.strftime('%Y-%m-%d')}T01:00:00-03:00",
-        "appointmentdetails": [
-            {
-                "appointmentkey": processo,
-                "sourcekey": numero_pedido,
-                "sourcetype": 1
-            }
-        ]
-    }
+with col1:
+    nome_paciente = st.text_input("Nome do paciente")
+    cpf = st.text_input("CPF (apenas números)")
+    email = st.text_input("E-mail(s) do responsável (separe por vírgula)")
+    numero_processo = st.text_input("Número do processo")
+    numero_pasta = st.text_input("Número da pasta")
+    data_receita = st.date_input("Data da receita")
 
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+with col2:
+    cur.execute("SELECT sku, descricao FROM produtos ORDER BY descricao")
+    produtos = cur.fetchall()
 
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=20)
-        if resp.status_code in (200, 201):
-            return True
-        else:
-            st.error(f"Erro ao criar appointment no WMS: {resp.status_code}")
-            st.error(resp.text)
-            return False
-    except Exception as e:
-        st.error(f"Falha ao conectar ao WMS (appointments): {str(e)}")
-        return False
+    lista_descricoes = [descricao for sku, descricao in produtos]
+    descricao_escolhida = st.selectbox("Medicamento", lista_descricoes)
+    sku = next(sku for sku, descricao in produtos if descricao == descricao_escolhida)
 
+    quantidade_medicamento = st.number_input("Quantidade solicitada", min_value=1, value=1)
+    prazo = st.date_input("Data de Cumprimento do Processo")
+    status_inicial = st.selectbox("Status inicial", ["ABERTA", "ATENDIDA PARCIALMENTE", "ENCERRADA"])
 
-# -----------------------------
-# FUNÇÃO COMPLETA DA DISPENSAÇÃO
-# -----------------------------
-def enviar_dispensacao_wms(cpf_limpo, processo, sku, quantidade, lote, data_saida):
-    # shipment primeiro
-    if not criar_shipment_wms(cpf_limpo, processo, sku, quantidade, lote):
-        return
+if st.button("Salvar ação judicial"):
+    cpf_limpo = limpar_cpf(cpf)
 
-    # appointment depois
-    if not criar_appointment_wms(cpf_limpo, processo, data_saida, processo):
-        return
-
-    st.success("Dispensação registrada no WMS!")
-
-
-# -----------------------------
-# TELA DE DISPENSAÇÃO
-# -----------------------------
-st.subheader("Registrar entrega de medicamento")
-
-cur.execute("""
-    SELECT a.id, p.nome, a.numero_processo, a.medicamento, a.quantidade_medicamento, 
-           a.prazo, a.data_receita, a.numero_pasta, p.cpf
-    FROM acoes a
-    JOIN pacientes p ON p.id = a.paciente_id
-    ORDER BY a.id DESC
-""")
-acoes = cur.fetchall()
-
-if not acoes:
-    st.warning("Nenhuma ação judicial cadastrada ainda.")
-else:
-    acao_map = {
-        f"{nome} — Proc: {proc} — Med: {med}": (id, qtd, prazo, data_receita, numero_pasta, med, cpf)
-        for id, nome, proc, med, qtd, prazo, data_receita, numero_pasta, cpf in acoes
-    }
-
-    escolha = st.selectbox("Selecione o paciente / processo", list(acao_map.keys()))
-    acao_id, qtd_total, prazo_acao, data_receita, numero_pasta, sku_medicamento, cpf_paciente = acao_map[escolha]
-
-    st.info(f"📅 Data de Cumprimento do Processo: {prazo_acao}")
-    st.info(f"📋 Número da Pasta: {numero_pasta or '—'}")
-    st.info(f"🧾 Data da Receita: {data_receita or '—'}")
-
-    cur.execute("""
-        SELECT COALESCE(SUM(quantidade), 0)
-        FROM dispensacoes
-        WHERE acao_id = %s
-    """, (acao_id,))
-    total_dispensado = cur.fetchone()[0]
-
-    restante = qtd_total - total_dispensado
-
-    st.info(f"Quantidade total da ação: {qtd_total}")
-    st.info(f"Total já dispensado: {total_dispensado}")
-    st.info(f"Quantidade restante: {restante}")
-
-    if restante <= 0:
-        st.success("✔ Toda a quantidade já foi dispensada. Ação encerrada.")
-        st.stop()
-
-    data_saida = st.date_input("Data de saída", value=date.today())
-    comparecimento = st.selectbox("Comparecimento", ["Sim", "Não"])
-    entregue = st.selectbox("Medicamento entregue?", ["Sim", "Não"])
-    marca = st.text_input("Marca do produto")
-    lote = st.text_input("Lote do produto")
-    validade = st.date_input("Validade do produto")
-
-    qtd_fornecer = st.number_input("Quantidade a fornecer", min_value=1, max_value=restante, value=restante)
-    qtd_fornecida = st.number_input("Quantidade fornecida", min_value=0, max_value=qtd_fornecer)
-
-    responsavel = st.text_input("Responsável pela liberação")
-
-    if st.button("Registrar entrega"):
-        if not responsavel.strip():
-            st.error("Informe o nome do responsável pela liberação.")
-            st.stop()
-
-        # grava dispensação
+    if not (nome_paciente.strip() and cpf_limpo.strip() and numero_processo.strip()):
+        st.error("Preencha todos os campos obrigatórios (nome, CPF, número do processo).")
+    elif not cpf_limpo.isdigit() or len(cpf_limpo) != 11:
+        st.error("CPF deve conter exatamente 11 dígitos numéricos.")
+    else:
+        # Inserir paciente
         cur.execute("""
-            INSERT INTO dispensacoes 
-            (acao_id, data, quantidade, marca, lote, validade, comparecimento, entregue, responsavel)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO pacientes (nome, cpf, email)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        """, (nome_paciente, cpf_limpo, email))
+        paciente_id = cur.fetchone()[0]
+
+        # Inserir ação judicial
+        cur.execute("""
+            INSERT INTO acoes (paciente_id, numero_processo, medicamento, quantidade_medicamento, status, prazo, data_receita, numero_pasta)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (
-            acao_id,
-            data_saida,
-            qtd_fornecida,
-            marca,
-            lote,
-            validade,
-            comparecimento,
-            entregue,
-            responsavel
+            paciente_id,
+            numero_processo,
+            sku,
+            quantidade_medicamento,
+            status_inicial,
+            prazo,
+            data_receita,
+            numero_pasta
         ))
-        dispensacao_id = cur.fetchone()[0]
+        acao_id = cur.fetchone()[0]
         conn.commit()
 
-        # dados para recibo
-        cur.execute("""
-            SELECT p.nome, a.numero_processo, a.medicamento
-            FROM acoes a
-            JOIN pacientes p ON p.id = a.paciente_id
-            WHERE a.id = %s
-        """, (acao_id,))
-        nome, processo, medicamento = cur.fetchone()
+        st.success(f"Ação judicial criada com sucesso! ID: {acao_id}")
 
-        cur.execute("SELECT descricao FROM produtos WHERE sku = %s", (medicamento,))
-        descricao_med = cur.fetchone()
-        nome_medicamento = descricao_med[0] if descricao_med else medicamento
-
-        # recibo PDF
-        caminho_pdf = f"recibo_disp_{dispensacao_id}.pdf"
-
-        gerar_recibo_pdf(
-            caminho_pdf,
-            nome,
-            processo,
-            nome_medicamento,
-            marca,
-            lote,
-            str(validade),
-            qtd_fornecer,
-            qtd_fornecida,
-            str(data_saida),
-            entregue,
-            responsavel,
-            comparecimento,
-            dispensacao_id,
-            numero_pasta,
-            data_receita
-        )
-
-        with open(caminho_pdf, "rb") as f:
-            st.download_button(
-                label="📄 Baixar Recibo em PDF",
-                data=f,
-                file_name=caminho_pdf,
-                mime="application/pdf"
-            )
-
-        # integração WMS
-        cpf_limpo = limpar_cpf(cpf_paciente)
-
-        enviar_dispensacao_wms(
+        enviar_para_wms(
+            numero_processo,
+            sku,
+            quantidade_medicamento,
             cpf_limpo,
-            processo,
-            sku_medicamento,
-            qtd_fornecida,
-            lote,
-            data_saida
+            nome_paciente,
+            descricao_escolhida
         )
 
-        st.success(f"Entrega registrada! ID da dispensação: {dispensacao_id}")
+        verificar_alertas_pendencias()
