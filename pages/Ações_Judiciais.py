@@ -9,7 +9,7 @@ import os
 
 st.set_page_config(
     page_title="Judicial Blue",
-    page_icon="logo_blue.png",   # pode ser PNG, ICO ou emoji
+    page_icon="simpl_blue.png",   # pode ser PNG, ICO ou emoji
     layout="wide"
 )
 
