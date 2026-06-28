@@ -97,7 +97,7 @@ def criar_appointment_wms(cpf_limpo, processo, data_saida, numero_pedido):
         "storerkey": cpf_limpo,
         "type": "1",
         "gmtstartdateandtime": f"{data_saida.strftime('%Y-%m-%d')}T00:00:00-03:00",
-        "gmtenddateandtime": f"{data_saida.strftime('%Y-%m-%d')}T01:00:00-03:00"
+        "gmtenddateandtime": f"{data_saida.strftime('%Y-%m-%d')}T01:00:00-03:00",
         "appointmentdetails": [
             {
                 "appointmentkey": processo,
