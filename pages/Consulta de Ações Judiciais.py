@@ -2,7 +2,11 @@ import streamlit as st
 import pandas as pd
 from db import get_conn
 
-st.set_page_config(layout="wide")
+st.set_page_config(
+    page_title="Judicial Blue",
+    page_icon="simpl_blue.png",   # pode ser PNG, ICO ou emoji
+    layout="wide"
+)
 
 st.title("📄 Consulta de Ações Judiciais")
 
