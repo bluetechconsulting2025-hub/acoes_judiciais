@@ -58,12 +58,14 @@ def criar_shipment_wms(cpf_limpo, processo, sku, quantidade, lote):
         "orderkey": processo,
         "storerkey": cpf_limpo,
         "type": "50",
-        "orderdetails": [{
+        "orderdetails": [
+            {
             "orderkey": processo,
             "sku": sku,
             "storerkey": cpf_limpo,
-            "qty": quantidade
-        }]
+            "openqty": quantidade
+        }
+        ]
     }
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
