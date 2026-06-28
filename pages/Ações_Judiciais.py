@@ -158,7 +158,7 @@ def criar_storer_wms(storerkey, nome_paciente):
     payload = {
         "storerkey": storerkey,
         "company": nome_paciente,
-        "type":"1",
+        "type": "1",
         "country": "BR"
     }
 
@@ -169,9 +169,45 @@ def criar_storer_wms(storerkey, nome_paciente):
         if resp.status_code in (200, 201):
             return True
         else:
-                st.error(f"Erro ao criar paciente no wms: {resp.status_code}")
-                st.error(resp.text)
-                return False
+            st.error(f"Erro ao criar paciente no WMS: {resp.status_code}")
+            st.error(resp.text)
+            return False
+    except Exception as e:
+        st.error(f"Falha ao conectar ao WMS: {str(e)}")
+        return False
+
+
+# -----------------------------
+# FUNÇÃO: CRIAR SKU NO WMS
+# -----------------------------
+def criar_sku_wms(sku, descricao, storerkey):
+    token, erro = gerar_token_wms()
+    if erro:
+        st.error(erro)
+        return False
+    if not token:
+        st.error("Token não recebido do servidor WMS.")
+        return False
+
+    url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_ENTERPRISE/items"
+
+    payload = {
+        "sku": sku,
+        "storerkey": storerkey,
+        "descr": descricao,
+        "uom": "UN"
+    }
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        if resp.status_code in (200, 201):
+            return True
+        else:
+            st.error(f"Erro ao criar SKU no WMS: {resp.status_code}")
+            st.error(resp.text)
+            return False
     except Exception as e:
         st.error(f"Falha ao conectar ao WMS: {str(e)}")
         return False
@@ -180,13 +216,19 @@ def criar_storer_wms(storerkey, nome_paciente):
 # -----------------------------
 # FUNÇÃO: ENVIAR AÇÃO PARA WMS
 # -----------------------------
-def enviar_para_wms(processo, sku, quantidade, cpf_limpo, nome_paciente):
-    # 1. Criar storer com CPF
+def enviar_para_wms(processo, sku, quantidade, cpf_limpo, nome_paciente, descricao_produto):
+
+    # 1. Criar storer
     if not criar_storer_wms(cpf_limpo, nome_paciente):
         st.error("Não foi possível criar o storer no WMS.")
         return
 
-    # 2. Gerar token
+    # 2. Criar SKU
+    if not criar_sku_wms(sku, descricao_produto, cpf_limpo):
+        st.error("Não foi possível criar o SKU no WMS.")
+        return
+
+    # 3. Gerar token
     token, erro = gerar_token_wms()
     if erro:
         st.error(erro)
@@ -195,8 +237,9 @@ def enviar_para_wms(processo, sku, quantidade, cpf_limpo, nome_paciente):
         st.error("Token não recebido do servidor WMS.")
         return
 
-    # 3. Enviar receipt
+    # 4. Enviar receipt
     url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2/receipts"
+
     payload = {
         "receiptkey": processo,
         "storerkey": cpf_limpo,
@@ -209,6 +252,7 @@ def enviar_para_wms(processo, sku, quantidade, cpf_limpo, nome_paciente):
             "lottable02": processo
         }]
     }
+
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     try:
@@ -285,5 +329,13 @@ if st.button("Salvar ação judicial"):
 
         st.success(f"Ação judicial criada com sucesso! ID: {acao_id}")
 
-        enviar_para_wms(numero_processo, sku, quantidade_medicamento, cpf_limpo, nome_paciente)
+        enviar_para_wms(
+            numero_processo,
+            sku,
+            quantidade_medicamento,
+            cpf_limpo,
+            nome_paciente,
+            descricao_escolhida
+        )
+
         verificar_alertas_pendencias()
