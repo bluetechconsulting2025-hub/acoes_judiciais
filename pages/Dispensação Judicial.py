@@ -3,6 +3,11 @@ from db import get_conn
 from datetime import date
 from utils_pdf import gerar_recibo_pdf
 
+st.set_page_config(
+    page_title="Judicial Blue",
+    page_icon="simpl_blue.png",   # pode ser PNG, ICO ou emoji
+    layout="wide"
+)
 st.title("📝 Dispensação Judicial")
 
 conn = get_conn()
