@@ -15,7 +15,7 @@ if st.button("Buscar"):
             d.id,
             p.nome,
             a.numero_processo,
-            a.medicamento,
+            pr.descricao AS medicamento_descricao,
             a.numero_pasta,
             a.data_receita,
             d.data,
@@ -30,6 +30,7 @@ if st.button("Buscar"):
         FROM dispensacoes d
         JOIN acoes a ON a.id = d.acao_id
         JOIN pacientes p ON p.id = a.paciente_id
+        JOIN produtos pr ON pr.sku = a.medicamento
         WHERE d.id = %s
     """, (disp_id,))
     
@@ -43,7 +44,7 @@ if st.button("Buscar"):
         id_disp,
         nome,
         processo,
-        medicamento,
+        medicamento,          # descrição do produto
         numero_pasta,
         data_receita,
         data_saida,
@@ -94,7 +95,7 @@ if st.button("Buscar"):
         caminho_pdf,
         nome,
         processo,
-        medicamento,
+        medicamento,      # descrição correta
         marca,
         lote,
         validade,
