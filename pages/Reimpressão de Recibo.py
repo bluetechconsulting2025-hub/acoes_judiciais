@@ -16,8 +16,11 @@ if st.button("Buscar"):
             p.nome,
             a.numero_processo,
             a.medicamento,
+            a.numero_pasta,
+            a.data_receita,
             d.data,
-            d.quantidade,
+            a.quantidade_medicamento AS qtd_fornecer,
+            d.quantidade AS qtd_fornecida,
             d.marca,
             d.lote,
             d.validade,
@@ -41,7 +44,10 @@ if st.button("Buscar"):
         nome,
         processo,
         medicamento,
+        numero_pasta,
+        data_receita,
         data_saida,
+        qtd_fornecer,
         qtd_fornecida,
         marca,
         lote,
@@ -61,14 +67,20 @@ if st.button("Buscar"):
     entregue = safe(entregue)
     responsavel = safe(responsavel)
     data_saida = safe(data_saida)
+    numero_pasta = safe(numero_pasta)
+    data_receita = safe(data_receita)
+    qtd_fornecer = safe(qtd_fornecer)
 
     st.success("Registro encontrado!")
 
     st.write(f"**Paciente:** {nome}")
     st.write(f"**Processo:** {processo}")
     st.write(f"**Medicamento:** {medicamento}")
-    st.write(f"**Quantidade fornecida:** {qtd_fornecida}")
-    st.write(f"**Data:** {data_saida}")
+    st.write(f"**Número da Pasta:** {numero_pasta}")
+    st.write(f"**Data da Receita:** {data_receita}")
+    st.write(f"**Quantidade a Fornecer:** {qtd_fornecer}")
+    st.write(f"**Quantidade Fornecida:** {qtd_fornecida}")
+    st.write(f"**Data de Saída:** {data_saida}")
     st.write(f"**Marca:** {marca}")
     st.write(f"**Lote:** {lote}")
     st.write(f"**Validade:** {validade}")
@@ -86,13 +98,15 @@ if st.button("Buscar"):
         marca,
         lote,
         validade,
-        "—",              # qtd_fornecer não existe na reimpressão
+        qtd_fornecer,
         qtd_fornecida,
         data_saida,
         entregue,
         responsavel,
         comparecimento,
-        id_disp
+        id_disp,
+        numero_pasta,
+        data_receita
     )
 
     with open(caminho_pdf, "rb") as f:
