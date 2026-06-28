@@ -169,7 +169,7 @@ def criar_storer_wms(storerkey, nome_paciente):
         if resp.status_code in (200, 201):
             return True
         else:
-                st.error(f"Erro ao criar storer: {resp.status_code}")
+                st.error(f"Erro ao criar paciente no wms: {resp.status_code}")
                 st.error(resp.text)
                 return False
     except Exception as e:
@@ -199,7 +199,7 @@ def enviar_para_wms(processo, sku, quantidade, cpf_limpo, nome_paciente):
     url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2/receipts"
     payload = {
         "receiptkey": processo,
-        "storerkey": cpf_limpo,
+        "storerkey": storerkey,
         "type": "50",
         "receiptdetails": [{
             "receiptkey": processo,
@@ -216,7 +216,7 @@ def enviar_para_wms(processo, sku, quantidade, cpf_limpo, nome_paciente):
         if resp.status_code in (200, 201):
             st.success("Entrada registrada no WMS com sucesso!")
         else:
-            st.error(f"Erro ao enviar para o WMS: {resp.status_code}")
+            st.error(f"Erro ao enviar para recebimento WMS: {resp.status_code}")
             st.error(resp.text)
     except Exception as e:
         st.error(f"Falha ao conectar ao WMS: {str(e)}")
