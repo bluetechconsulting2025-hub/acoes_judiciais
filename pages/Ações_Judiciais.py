@@ -194,7 +194,9 @@ def criar_sku_wms(sku, descricao, storerkey):
     payload = {
         "sku": sku,
         "storerkey": storerkey,
-        "descr": descricao
+        "descr": descricao,
+        "lottablevalidationkey": "INCA"
+        
     }
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
