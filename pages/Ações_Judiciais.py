@@ -9,7 +9,7 @@ import os
 
 st.set_page_config(
     page_title="Judicial Blue",
-    page_icon="simpl_blue.png",   # pode ser PNG, ICO ou emoji
+    page_icon="simpl_blue.png",
     layout="wide"
 )
 
@@ -135,9 +135,58 @@ def gerar_token_wms():
 
 
 # -----------------------------
+# CPF: LIMPAR (só números)
+# -----------------------------
+def limpar_cpf(cpf):
+    return "".join(filter(str.isdigit, cpf))
+
+
+# -----------------------------
+# FUNÇÃO: CRIAR STORER NO WMS
+# -----------------------------
+def criar_storer_wms(storerkey, nome_paciente):
+    token, erro = gerar_token_wms()
+    if erro:
+        st.error(erro)
+        return False
+    if not token:
+        st.error("Token não recebido do servidor WMS.")
+        return False
+
+    url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_ENTERPRISE/owners"
+
+    payload = {
+        "storerkey": storerkey,
+        "company": nome_paciente,
+        "type":"1",
+        "country": "BR"
+    }
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        if resp.status_code in (200, 201):
+            return True
+        else:
+                st.error(f"Erro ao criar storer: {resp.status_code}")
+                st.error(resp.text)
+                return False
+    except Exception as e:
+        st.error(f"Falha ao conectar ao WMS: {str(e)}")
+        return False
+
+
+# -----------------------------
 # FUNÇÃO: ENVIAR AÇÃO PARA WMS
 # -----------------------------
-def enviar_para_wms(processo, sku, quantidade):
+def enviar_para_wms(processo, sku, quantidade, cpf_limpo, nome_paciente):
+    # 1. Criar storer com CPF
+    if not criar_storer_wms(cpf_limpo, nome_paciente):
+        st.error("Não foi possível criar o storer no WMS.")
+        return
+
+    # 2. Gerar token
     token, erro = gerar_token_wms()
     if erro:
         st.error(erro)
@@ -146,15 +195,16 @@ def enviar_para_wms(processo, sku, quantidade):
         st.error("Token não recebido do servidor WMS.")
         return
 
+    # 3. Enviar receipt
     url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2/receipts"
     payload = {
         "receiptkey": processo,
-        "storerkey": "BLUE SUPPLY",
+        "storerkey": cpf_limpo,
         "type": "50",
         "receiptdetails": [{
             "receiptkey": processo,
             "sku": sku,
-            "storerkey": "BLUE SUPPLY",
+            "storerkey": cpf_limpo,
             "qtyexpected": quantidade,
             "lottable02": processo
         }]
@@ -181,7 +231,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     nome_paciente = st.text_input("Nome do paciente")
-    cpf = st.text_input("CPF")
+    cpf = st.text_input("CPF (apenas números)")
     email = st.text_input("E-mail(s) do responsável (separe por vírgula)")
     numero_processo = st.text_input("Número do processo")
     numero_pasta = st.text_input("Número da pasta")
@@ -200,15 +250,19 @@ with col2:
     status_inicial = st.selectbox("Status inicial", ["ABERTA", "ATENDIDA PARCIALMENTE", "ENCERRADA"])
 
 if st.button("Salvar ação judicial"):
-    if not (nome_paciente.strip() and cpf.strip() and numero_processo.strip()):
-        st.error("Preencha todos os campos obrigatórios.")
+    cpf_limpo = limpar_cpf(cpf)
+
+    if not (nome_paciente.strip() and cpf_limpo.strip() and numero_processo.strip()):
+        st.error("Preencha todos os campos obrigatórios (nome, CPF, número do processo).")
+    elif not cpf_limpo.isdigit() or len(cpf_limpo) != 11:
+        st.error("CPF deve conter exatamente 11 dígitos numéricos.")
     else:
         # Inserir paciente
         cur.execute("""
             INSERT INTO pacientes (nome, cpf, email)
             VALUES (%s, %s, %s)
             RETURNING id
-        """, (nome_paciente, cpf, email))
+        """, (nome_paciente, cpf_limpo, email))
         paciente_id = cur.fetchone()[0]
 
         # Inserir ação judicial
@@ -231,5 +285,5 @@ if st.button("Salvar ação judicial"):
 
         st.success(f"Ação judicial criada com sucesso! ID: {acao_id}")
 
-        enviar_para_wms(numero_processo, sku, quantidade_medicamento)
+        enviar_para_wms(numero_processo, sku, quantidade_medicamento, cpf_limpo, nome_paciente)
         verificar_alertas_pendencias()
