@@ -5,7 +5,12 @@ import smtplib
 from email.mime.text import MIMEText
 import os
 
-st.set_page_config(page_title="Sistema Judicial", layout="wide")
+st.set_page_config(
+    page_title="Judicial Blue",
+    page_icon="logo_blue.png",   # pode ser PNG, ICO ou emoji
+    layout="wide"
+)
+
 
 st.title("⚖️ Sistema de Ações Judiciais – POC")
 st.write("Use o menu à esquerda para navegar entre os módulos.")
