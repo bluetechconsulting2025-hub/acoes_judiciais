@@ -104,7 +104,7 @@ def criar_appointment_wms(cpf_limpo, processo, data_saida, numero_pedido):
             {
                 "appointmentkey": processo,
                 "sourcekey": numero_pedido,
-                "sourcetype": 1
+                "sourcetype": "1"
             }
         ]
     }
