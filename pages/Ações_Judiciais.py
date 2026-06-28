@@ -199,7 +199,7 @@ def enviar_para_wms(processo, sku, quantidade, cpf_limpo, nome_paciente):
     url = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest/BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2/receipts"
     payload = {
         "receiptkey": processo,
-        "storerkey": storerkey,
+        "storerkey": cpf_limpo,
         "type": "50",
         "receiptdetails": [{
             "receiptkey": processo,
