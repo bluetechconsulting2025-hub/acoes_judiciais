@@ -136,7 +136,7 @@ def enviar_dispensacao_wms(cpf_limpo, processo, sku, quantidade, lote, data_said
     if not criar_appointment_wms(cpf_limpo, processo, data_saida, processo):
         return
 
-    st.success("Dispensação registrada no WMS (shipment + appointment)!")
+    st.success("Dispensação registrada no WMS (processo)!")
 
 
 # -----------------------------
