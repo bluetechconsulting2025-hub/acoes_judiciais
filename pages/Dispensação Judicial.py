@@ -57,7 +57,7 @@ def criar_shipment_wms(cpf_limpo, processo, sku, quantidade, lote):
     payload = {
         "orderkey": processo,
         "storerkey": cpf_limpo,
-        "type": "55",
+        "type": "555",
         "orderdetails": [
             {
             "orderkey": processo,
