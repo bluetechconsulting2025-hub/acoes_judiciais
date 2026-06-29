@@ -58,6 +58,7 @@ def criar_shipment_wms(cpf_limpo, processo, sku, quantidade, lote):
         "orderkey": processo,
         "storerkey": cpf_limpo,
         "type": "555",
+        "plannedshipdate": f"{data_saida.strftime('%Y-%m-%d')}T00:00:00-03:00", 
         "orderdetails": [
             {
             "orderkey": processo,
