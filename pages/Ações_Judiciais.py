@@ -8,7 +8,7 @@ from db import get_conn
 import os
 
 st.set_page_config(
-    page_title="Judicial Blue",
+    page_title="Judicial Blue",,
     page_icon="simpl_blue.png",
     layout="wide"
 )
